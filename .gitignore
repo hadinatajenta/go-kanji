@@ -1,0 +1,17 @@
+# Ignore VS Code config
+.vscode/
+
+# Binaries
+*.exe
+*.out
+*.test
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Vendor (kalau nggak dipush)
+vendor/
+
+# Dependency files (kalau kamu rebuild dari go mod aja)
+go.sum

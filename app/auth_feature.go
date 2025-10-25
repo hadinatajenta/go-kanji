@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -14,6 +15,8 @@ import (
 	authrepository "gobackend/src/auth/repository"
 	authroutes "gobackend/src/auth/routes"
 	authservice "gobackend/src/auth/service"
+	logrepository "gobackend/src/logs/repository"
+	logservice "gobackend/src/logs/service"
 )
 
 const (
@@ -43,12 +46,19 @@ func RegisterAuthFeature(router gin.IRouter, database *sql.DB) error {
 		return fmt.Errorf("initialise auth repository: %w", err)
 	}
 
+	logRepo := logrepository.NewPostgresRepository(database)
+	if err := logRepo.EnsureSchema(context.Background()); err != nil {
+		return fmt.Errorf("ensure user logs schema: %w", err)
+	}
+	activityLogService := logservice.NewLogService(logRepo)
+
 	authConfig := authservice.GoogleAuthConfig{
 		ClientID:     os.Getenv(googleClientIDEnv),
 		ClientSecret: os.Getenv(googleClientSecretEnv),
 		RedirectURL:  os.Getenv(googleRedirectURIEnv),
 		JWTSecret:    os.Getenv(jwtSecretEnv),
 		TokenTTL:     readJWTTTL(),
+		LogService:   activityLogService,
 	}
 
 	authService, err := authservice.NewGoogleAuthService(userRepository, authConfig)
@@ -58,7 +68,7 @@ func RegisterAuthFeature(router gin.IRouter, database *sql.DB) error {
 
 	successRedirectURL := os.Getenv(authSuccessRedirectEnv)
 	failureRedirectURL := os.Getenv(authFailureRedirectEnv)
-	handler := authdelivery.NewHandler(authService, successRedirectURL, failureRedirectURL)
+	handler := authdelivery.NewHandler(authService, successRedirectURL, failureRedirectURL, activityLogService)
 	authroutes.Register(router, handler)
 
 	return nil

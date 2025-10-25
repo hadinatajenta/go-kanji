@@ -5,7 +5,7 @@ import (
 
 	"gobackend/shared/pagination"
 	"gobackend/shared/response"
-	loginterfaces "gobackend/src/users/logs/interfaces"
+	loginterfaces "gobackend/src/logs/interfaces"
 )
 
 // Handler exposes endpoints for user logs.

@@ -5,8 +5,8 @@ import (
 	"database/sql"
 
 	"gobackend/shared/pagination"
-	"gobackend/src/users/logs/dao"
-	loginterfaces "gobackend/src/users/logs/interfaces"
+	"gobackend/src/logs/dao"
+	loginterfaces "gobackend/src/logs/interfaces"
 )
 
 var _ loginterfaces.Repository = (*PostgresRepository)(nil)
@@ -42,9 +42,15 @@ CREATE INDEX IF NOT EXISTS user_logs_created_at_idx ON user_logs (created_at DES
 // FindAll retrieves logs using pagination parameters and returns total count.
 func (r *PostgresRepository) FindAll(ctx context.Context, params pagination.Params) ([]dao.Log, int64, error) {
 	const listQuery = `
-SELECT id, user_id, action, COALESCE(detail, ''), created_at
-FROM user_logs
-ORDER BY created_at DESC
+SELECT l.id,
+       l.user_id,
+       COALESCE(u.name, ''),
+       l.action,
+       COALESCE(l.detail, ''),
+       l.created_at
+FROM user_logs l
+LEFT JOIN users u ON u.id = l.user_id
+ORDER BY l.created_at DESC
 LIMIT $1 OFFSET $2
 `
 	rows, err := r.db.QueryContext(ctx, listQuery, params.Limit(), params.Offset())
@@ -55,10 +61,15 @@ LIMIT $1 OFFSET $2
 
 	var logs []dao.Log
 	for rows.Next() {
-		var log dao.Log
-		if err := rows.Scan(&log.ID, &log.UserID, &log.Action, &log.Detail, &log.CreatedAt); err != nil {
+		var (
+			log      dao.Log
+			userName string
+		)
+
+		if err := rows.Scan(&log.ID, &log.UserID, &userName, &log.Action, &log.Detail, &log.CreatedAt); err != nil {
 			return nil, 0, err
 		}
+		log.UserName = userName
 		logs = append(logs, log)
 	}
 	if err := rows.Err(); err != nil {
@@ -72,4 +83,14 @@ LIMIT $1 OFFSET $2
 	}
 
 	return logs, total, nil
+}
+
+// Create inserts a new log entry.
+func (r *PostgresRepository) Create(ctx context.Context, entry dao.Log) error {
+	const query = `
+INSERT INTO user_logs (user_id, action, detail)
+VALUES ($1, $2, $3)
+`
+	_, err := r.db.ExecContext(ctx, query, entry.UserID, entry.Action, entry.Detail)
+	return err
 }

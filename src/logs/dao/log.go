@@ -6,6 +6,7 @@ import "time"
 type Log struct {
 	ID        int64     `json:"id"`
 	UserID    int64     `json:"user_id"`
+	UserName  string    `json:"user_name"`
 	Action    string    `json:"action"`
 	Detail    string    `json:"detail"`
 	CreatedAt time.Time `json:"created_at"`

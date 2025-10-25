@@ -3,7 +3,7 @@ package routes
 import (
 	"github.com/gin-gonic/gin"
 
-	logdelivery "gobackend/src/users/logs/delivery"
+	logdelivery "gobackend/src/logs/delivery"
 )
 
 // Register attaches log endpoints to the router.

@@ -6,14 +6,18 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"gobackend/shared/response"
 	"gobackend/src/auth/dto"
 	authinterfaces "gobackend/src/auth/interfaces"
 	authservice "gobackend/src/auth/service"
 	"gobackend/src/auth/validation"
+	logdto "gobackend/src/logs/dto"
+	loginterfaces "gobackend/src/logs/interfaces"
 )
 
 const (
@@ -26,14 +30,16 @@ type Handler struct {
 	service            authinterfaces.AuthService
 	successRedirectURL string
 	failureRedirectURL string
+	logService         loginterfaces.Service
 }
 
 // NewHandler instantiates an auth HTTP handler.
-func NewHandler(service authinterfaces.AuthService, successRedirectURL, failureRedirectURL string) *Handler {
+func NewHandler(service authinterfaces.AuthService, successRedirectURL, failureRedirectURL string, logService loginterfaces.Service) *Handler {
 	return &Handler{
 		service:            service,
 		successRedirectURL: successRedirectURL,
 		failureRedirectURL: failureRedirectURL,
+		logService:         logService,
 	}
 }
 
@@ -41,7 +47,7 @@ func NewHandler(service authinterfaces.AuthService, successRedirectURL, failureR
 func (h *Handler) GoogleLogin(ctx *gin.Context) {
 	state, err := generateState()
 	if err != nil {
-		writeError(ctx, http.StatusInternalServerError, "failed to generate oauth state")
+		response.InternalError(ctx, "failed to generate oauth state", err.Error())
 		return
 	}
 
@@ -68,13 +74,13 @@ func (h *Handler) GoogleCallback(ctx *gin.Context) {
 	}
 
 	if err := validation.ValidateGoogleCallback(req); err != nil {
-		writeValidationError(ctx, err)
+		response.BadRequest(ctx, err.Error(), nil)
 		return
 	}
 
 	if cookie, err := ctx.Request.Cookie(stateCookieName); err == nil && cookie.Value != "" {
 		if cookie.Value != req.State {
-			writeError(ctx, http.StatusBadRequest, "state mismatch")
+			response.BadRequest(ctx, "state mismatch", nil)
 			return
 		}
 
@@ -88,14 +94,14 @@ func (h *Handler) GoogleCallback(ctx *gin.Context) {
 			return
 		}
 
-		writeError(ctx, http.StatusBadGateway, err.Error())
+		response.InternalError(ctx, "failed to complete login", err.Error())
 		return
 	}
 
 	if h.successRedirectURL != "" {
 		redirectURL, parseErr := url.Parse(h.successRedirectURL)
 		if parseErr != nil {
-			writeError(ctx, http.StatusInternalServerError, "invalid success redirect url")
+			response.InternalError(ctx, "invalid success redirect url", parseErr.Error())
 			return
 		}
 
@@ -112,7 +118,52 @@ func (h *Handler) GoogleCallback(ctx *gin.Context) {
 		return
 	}
 
-	ctx.JSON(http.StatusOK, result)
+	response.OK(ctx, "login successful", result)
+}
+
+// Logout registers a logout activity in the audit logs.
+func (h *Handler) Logout(ctx *gin.Context) {
+	var req dto.LogoutRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(ctx, "invalid payload", err.Error())
+		return
+	}
+
+	authHeader := ctx.GetHeader("Authorization")
+	if authHeader == "" {
+		response.Unauthorized(ctx, "missing authorization header")
+		return
+	}
+
+	token := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer"))
+	if token == "" {
+		response.Unauthorized(ctx, "invalid authorization header")
+		return
+	}
+
+	userID, err := h.service.ExtractUserID(token)
+	if err != nil {
+		response.Unauthorized(ctx, "invalid or expired token")
+		return
+	}
+
+	detail := req.Detail
+	if detail == "" {
+		detail = "user initiated logout"
+	}
+
+	entry := logdto.NewLog{
+		UserID: userID,
+		Action: "logout",
+		Detail: detail,
+	}
+
+	if err := h.logService.Record(ctx.Request.Context(), entry); err != nil {
+		response.InternalError(ctx, "failed to record logout", err.Error())
+		return
+	}
+
+	response.OK(ctx, "logout recorded", gin.H{"status": "ok"})
 }
 
 func generateState() (string, error) {
@@ -122,20 +173,6 @@ func generateState() (string, error) {
 	}
 
 	return base64.RawURLEncoding.EncodeToString(random), nil
-}
-
-func writeValidationError(ctx *gin.Context, err error) {
-	status := http.StatusBadRequest
-	switch {
-	case errors.Is(err, validation.ErrMissingCode):
-		status = http.StatusBadRequest
-	}
-
-	writeError(ctx, status, err.Error())
-}
-
-func writeError(ctx *gin.Context, status int, message string) {
-	ctx.JSON(status, gin.H{"error": message})
 }
 
 func (h *Handler) handleUnauthorized(ctx *gin.Context) {
@@ -152,5 +189,5 @@ func (h *Handler) handleUnauthorized(ctx *gin.Context) {
 		}
 	}
 
-	writeError(ctx, http.StatusUnauthorized, authservice.ErrUnauthorized.Error())
+	response.Unauthorized(ctx, authservice.ErrUnauthorized.Error())
 }

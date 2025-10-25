@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 
 	"gobackend/src/users/dto"
 	userinterfaces "gobackend/src/users/interfaces"
@@ -29,8 +30,7 @@ func (s *UserServiceImpl) ListUsers(ctx context.Context) ([]dto.User, error) {
 	result := make([]dto.User, 0, len(users))
 	for _, user := range users {
 		result = append(result, dto.User{
-			ID:          user.ID,
-			Email:       user.Email,
+			Email:       maskEmail(user.Email),
 			Name:        user.Name,
 			PictureURL:  user.PictureURL,
 			LastLoginAt: user.LastLoginAt,
@@ -40,4 +40,21 @@ func (s *UserServiceImpl) ListUsers(ctx context.Context) ([]dto.User, error) {
 	}
 
 	return result, nil
+}
+
+func maskEmail(email string) string {
+	const maskedSegment = "*****"
+
+	parts := strings.Split(email, "@")
+	if len(parts) != 2 {
+		return email
+	}
+
+	local, domain := parts[0], parts[1]
+	prefix := local
+	if len(prefix) > 3 {
+		prefix = prefix[:3]
+	}
+
+	return prefix + maskedSegment + "@" + domain
 }

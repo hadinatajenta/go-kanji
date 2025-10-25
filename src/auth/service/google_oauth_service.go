@@ -16,6 +16,8 @@ import (
 	"gobackend/src/auth/dao"
 	"gobackend/src/auth/dto"
 	authinterfaces "gobackend/src/auth/interfaces"
+	logdto "gobackend/src/logs/dto"
+	loginterfaces "gobackend/src/logs/interfaces"
 )
 
 const (
@@ -41,6 +43,7 @@ type GoogleAuthConfig struct {
 	JWTSecret    string
 	TokenTTL     time.Duration
 	HTTPClient   *http.Client
+	LogService   loginterfaces.Service
 }
 
 type googleUserInfo struct {
@@ -64,6 +67,7 @@ type GoogleAuthService struct {
 	jwtSecret   []byte
 	tokenTTL    time.Duration
 	httpClient  *http.Client
+	logService  loginterfaces.Service
 }
 
 var _ authinterfaces.AuthService = (*GoogleAuthService)(nil)
@@ -74,7 +78,8 @@ func NewGoogleAuthService(repo authinterfaces.UserRepository, cfg GoogleAuthConf
 		cfg.ClientID == "" ||
 		cfg.ClientSecret == "" ||
 		cfg.RedirectURL == "" ||
-		cfg.JWTSecret == "" {
+		cfg.JWTSecret == "" ||
+		cfg.LogService == nil {
 		return nil, ErrInvalidConfig
 	}
 
@@ -109,6 +114,7 @@ func NewGoogleAuthService(repo authinterfaces.UserRepository, cfg GoogleAuthConf
 		jwtSecret:   []byte(cfg.JWTSecret),
 		tokenTTL:    cfg.TokenTTL,
 		httpClient:  httpClient,
+		logService:  cfg.LogService,
 	}, nil
 }
 
@@ -165,6 +171,14 @@ func (s *GoogleAuthService) HandleGoogleCallback(ctx context.Context, req dto.Go
 	}
 
 	user.LastLoginAt = time.Now()
+
+	if err := s.logService.Record(ctx, logdto.NewLog{
+		UserID: user.ID,
+		Action: "login",
+		Detail: "authenticated via Google OAuth",
+	}); err != nil {
+		return nil, fmt.Errorf("record login log: %w", err)
+	}
 
 	tokenString, err := s.generateJWT(*user)
 	if err != nil {
@@ -243,4 +257,30 @@ func (s *GoogleAuthService) generateJWT(user dao.User) (string, error) {
 	}
 
 	return signed, nil
+}
+
+// ExtractUserID parses the JWT token and returns the embedded user ID.
+func (s *GoogleAuthService) ExtractUserID(token string) (int64, error) {
+	if token == "" {
+		return 0, fmt.Errorf("token is required")
+	}
+
+	claims := &authClaims{}
+	parsed, err := jwt.ParseWithClaims(token, claims, func(t *jwt.Token) (interface{}, error) {
+		return s.jwtSecret, nil
+	})
+	if err != nil {
+		return 0, fmt.Errorf("parse token: %w", err)
+	}
+
+	if !parsed.Valid {
+		return 0, fmt.Errorf("invalid token")
+	}
+
+	userID, err := strconv.ParseInt(claims.Subject, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("decode subject: %w", err)
+	}
+
+	return userID, nil
 }

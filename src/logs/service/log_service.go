@@ -4,8 +4,9 @@ import (
 	"context"
 
 	"gobackend/shared/pagination"
-	"gobackend/src/users/logs/dto"
-	loginterfaces "gobackend/src/users/logs/interfaces"
+	"gobackend/src/logs/dao"
+	"gobackend/src/logs/dto"
+	loginterfaces "gobackend/src/logs/interfaces"
 )
 
 var _ loginterfaces.Service = (*LogService)(nil)
@@ -30,8 +31,7 @@ func (s *LogService) ListLogs(ctx context.Context, params pagination.Params) ([]
 	result := make([]dto.Log, 0, len(logs))
 	for _, entry := range logs {
 		result = append(result, dto.Log{
-			ID:        entry.ID,
-			UserID:    entry.UserID,
+			UserName:  entry.UserName,
 			Action:    entry.Action,
 			Detail:    entry.Detail,
 			CreatedAt: entry.CreatedAt,
@@ -39,4 +39,15 @@ func (s *LogService) ListLogs(ctx context.Context, params pagination.Params) ([]
 	}
 
 	return result, total, nil
+}
+
+// Record stores a new log entry.
+func (s *LogService) Record(ctx context.Context, entry dto.NewLog) error {
+	daoEntry := dao.Log{
+		UserID: entry.UserID,
+		Action: entry.Action,
+		Detail: entry.Detail,
+	}
+
+	return s.repo.Create(ctx, daoEntry)
 }

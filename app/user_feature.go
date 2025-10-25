@@ -12,10 +12,10 @@ import (
 	userroutes "gobackend/src/users/routes"
 	userservice "gobackend/src/users/service"
 
-	logdelivery "gobackend/src/users/logs/delivery"
-	logrepository "gobackend/src/users/logs/repository"
-	logroutes "gobackend/src/users/logs/routes"
-	logservice "gobackend/src/users/logs/service"
+	logdelivery "gobackend/src/logs/delivery"
+	logrepository "gobackend/src/logs/repository"
+	logroutes "gobackend/src/logs/routes"
+	logservice "gobackend/src/logs/service"
 )
 
 // RegisterUserFeature wires the user endpoints into the router.

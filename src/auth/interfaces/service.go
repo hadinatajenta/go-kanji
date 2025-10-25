@@ -10,4 +10,5 @@ import (
 type AuthService interface {
 	GetGoogleLoginURL(state string) string
 	HandleGoogleCallback(ctx context.Context, req dto.GoogleCallbackRequest) (*dto.AuthResponse, error)
+	ExtractUserID(token string) (int64, error)
 }

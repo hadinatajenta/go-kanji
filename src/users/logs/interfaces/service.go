@@ -1,0 +1,13 @@
+package interfaces
+
+import (
+	"context"
+
+	"gobackend/shared/pagination"
+	"gobackend/src/users/logs/dto"
+)
+
+// Service defines operations for user logs.
+type Service interface {
+	ListLogs(ctx context.Context, params pagination.Params) ([]dto.Log, int64, error)
+}

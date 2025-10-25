@@ -15,3 +15,5 @@ vendor/
 
 # Dependency files (kalau kamu rebuild dari go mod aja)
 go.sum
+
+.env

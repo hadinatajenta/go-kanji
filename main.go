@@ -15,6 +15,7 @@ import (
 
 	"gobackend/app"
 	"gobackend/infra/db"
+	"gobackend/infra/mq"
 )
 
 const (
@@ -40,6 +41,12 @@ func run() error {
 	}
 	defer database.Close()
 
+	rabbitConn, err := mq.NewConnection(os.Getenv("RABBITMQ_URI"))
+	if err != nil {
+		return fmt.Errorf("connect to rabbitmq: %w", err)
+	}
+	defer rabbitConn.Close()
+
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())
 	router.Use(cors.New(corsConfig()))
@@ -49,6 +56,9 @@ func run() error {
 	}
 	if err := app.RegisterUserFeature(router, database); err != nil {
 		return fmt.Errorf("register user feature: %w", err)
+	}
+	if err := app.RegisterBunpoFeature(router); err != nil {
+		return fmt.Errorf("register bunpo feature: %w", err)
 	}
 
 	server := &http.Server{

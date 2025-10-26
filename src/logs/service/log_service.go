@@ -22,8 +22,8 @@ func NewLogService(repo loginterfaces.Repository) *LogService {
 }
 
 // ListLogs fetches logs and maps them to DTOs.
-func (s *LogService) ListLogs(ctx context.Context, params pagination.Params) ([]dto.Log, int64, error) {
-	logs, total, err := s.repo.FindAll(ctx, params)
+func (s *LogService) ListLogs(ctx context.Context, params pagination.Params, userID *int64) ([]dto.Log, int64, error) {
+	logs, total, err := s.repo.FindAll(ctx, params, userID)
 	if err != nil {
 		return nil, 0, err
 	}

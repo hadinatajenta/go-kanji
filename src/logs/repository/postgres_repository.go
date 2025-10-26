@@ -3,6 +3,8 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
 
 	"gobackend/shared/pagination"
 	"gobackend/src/logs/dao"
@@ -21,27 +23,54 @@ func NewPostgresRepository(db *sql.DB) *PostgresRepository {
 	return &PostgresRepository{db: db}
 }
 
-// EnsureSchema ensures the user_logs table exists.
+// EnsureSchema verifies that required tables and indexes exist.
 func (r *PostgresRepository) EnsureSchema(ctx context.Context) error {
-	const query = `
-CREATE TABLE IF NOT EXISTS user_logs (
-    id SERIAL PRIMARY KEY,
-    user_id BIGINT NOT NULL,
-    action TEXT NOT NULL,
-    detail TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('Asia/Jakarta', NOW())
-);
-
-CREATE INDEX IF NOT EXISTS user_logs_user_id_idx ON user_logs (user_id);
-CREATE INDEX IF NOT EXISTS user_logs_created_at_idx ON user_logs (created_at DESC);
+	const logsTableQuery = `
+SELECT 1
+FROM information_schema.tables
+WHERE table_schema = 'public' AND table_name = 'user_logs'
 `
-	_, err := r.db.ExecContext(ctx, query)
-	return err
+
+	var exists int
+	if err := r.db.QueryRowContext(ctx, logsTableQuery).Scan(&exists); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("user_logs table not found; please run database migrations")
+		}
+		return err
+	}
+
+	const userIdxQuery = `
+SELECT 1
+FROM pg_indexes
+WHERE schemaname = 'public' AND indexname = 'user_logs_user_id_idx'
+`
+
+	if err := r.db.QueryRowContext(ctx, userIdxQuery).Scan(&exists); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("index user_logs_user_id_idx not found; please run database migrations")
+		}
+		return err
+	}
+
+	const createdIdxQuery = `
+SELECT 1
+FROM pg_indexes
+WHERE schemaname = 'public' AND indexname = 'user_logs_created_at_idx'
+`
+
+	if err := r.db.QueryRowContext(ctx, createdIdxQuery).Scan(&exists); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("index user_logs_created_at_idx not found; please run database migrations")
+		}
+		return err
+	}
+
+	return nil
 }
 
-// FindAll retrieves logs using pagination parameters and returns total count.
-func (r *PostgresRepository) FindAll(ctx context.Context, params pagination.Params) ([]dao.Log, int64, error) {
-	const listQuery = `
+// FindAll retrieves logs using pagination parameters and optional filters, returning the total count.
+func (r *PostgresRepository) FindAll(ctx context.Context, params pagination.Params, userID *int64) ([]dao.Log, int64, error) {
+	baseQuery := `
 SELECT l.id,
        l.user_id,
        COALESCE(u.name, ''),
@@ -49,11 +78,30 @@ SELECT l.id,
        COALESCE(l.detail, ''),
        l.created_at
 FROM user_logs l
-LEFT JOIN users u ON u.id = l.user_id
-ORDER BY l.created_at DESC
-LIMIT $1 OFFSET $2
-`
-	rows, err := r.db.QueryContext(ctx, listQuery, params.Limit(), params.Offset())
+LEFT JOIN users u ON u.id = l.user_id`
+
+	countQuery := `SELECT COUNT(*) FROM user_logs`
+
+	var (
+		whereClause string
+		args        []interface{}
+		countArgs   []interface{}
+	)
+
+	if userID != nil {
+		whereClause = " WHERE l.user_id = $1"
+		countQuery += " WHERE user_id = $1"
+		args = append(args, *userID)
+		countArgs = append(countArgs, *userID)
+	}
+
+	limitPlaceholder := len(args) + 1
+	offsetPlaceholder := len(args) + 2
+	args = append(args, params.Limit(), params.Offset())
+
+	query := fmt.Sprintf("%s%s ORDER BY l.created_at DESC LIMIT $%d OFFSET $%d", baseQuery, whereClause, limitPlaceholder, offsetPlaceholder)
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -76,10 +124,15 @@ LIMIT $1 OFFSET $2
 		return nil, 0, err
 	}
 
-	const countQuery = `SELECT COUNT(*) FROM user_logs`
 	var total int64
-	if err := r.db.QueryRowContext(ctx, countQuery).Scan(&total); err != nil {
-		return nil, 0, err
+	if len(countArgs) > 0 {
+		if err := r.db.QueryRowContext(ctx, countQuery, countArgs...).Scan(&total); err != nil {
+			return nil, 0, err
+		}
+	} else {
+		if err := r.db.QueryRowContext(ctx, countQuery).Scan(&total); err != nil {
+			return nil, 0, err
+		}
 	}
 
 	return logs, total, nil

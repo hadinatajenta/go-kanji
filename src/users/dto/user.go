@@ -4,6 +4,7 @@ import "time"
 
 // User represents the payload returned to API consumers.
 type User struct {
+	Reference   string    `json:"reference"`
 	Email       string    `json:"email"`
 	Name        string    `json:"name"`
 	PictureURL  string    `json:"picture_url,omitempty"`

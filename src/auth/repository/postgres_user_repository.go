@@ -4,16 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 
 	"gobackend/src/auth/dao"
 	authinterfaces "gobackend/src/auth/interfaces"
-)
-
-const (
-	userTableName      = "users"
-	providerColumnName = "provider"
-	providerIDColumn   = "provider_id"
 )
 
 var _ authinterfaces.UserRepository = (*PostgresUserRepository)(nil)
@@ -45,26 +40,34 @@ func NewPostgresUserRepository(db *sql.DB) (*PostgresUserRepository, error) {
 }
 
 func (r *PostgresUserRepository) ensureSchema() error {
-	const schema = `
-CREATE TABLE IF NOT EXISTS users (
-	id SERIAL PRIMARY KEY,
-	email TEXT NOT NULL,
-	name TEXT NOT NULL,
-	provider TEXT NOT NULL,
-	provider_id TEXT NOT NULL,
-	picture_url TEXT,
-	created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('Asia/Jakarta', NOW()),
-	last_login_at TIMESTAMPTZ
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS users_provider_provider_id_idx
-	ON users (provider, provider_id);
-
-ALTER TABLE users
-	ALTER COLUMN created_at SET DEFAULT timezone('Asia/Jakarta', NOW());
+	const usersTableQuery = `
+SELECT 1
+FROM information_schema.tables
+WHERE table_schema = 'public' AND table_name = 'users'
 `
-	_, err := r.db.Exec(schema)
-	return err
+
+	var exists int
+	if err := r.db.QueryRow(usersTableQuery).Scan(&exists); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("users table not found; please run database migrations: %w", err)
+		}
+		return err
+	}
+
+	const usersIndexQuery = `
+SELECT 1
+FROM pg_indexes
+WHERE schemaname = 'public' AND indexname = 'users_provider_provider_id_idx'
+`
+
+	if err := r.db.QueryRow(usersIndexQuery).Scan(&exists); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("index users_provider_provider_id_idx not found; please run database migrations: %w", err)
+		}
+		return err
+	}
+
+	return nil
 }
 
 // FindByProvider locates a user by provider details.

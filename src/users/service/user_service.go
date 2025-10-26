@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"gobackend/shared/identity"
 	"gobackend/src/users/dto"
 	userinterfaces "gobackend/src/users/interfaces"
 )
@@ -12,12 +13,13 @@ var _ userinterfaces.UserService = (*UserServiceImpl)(nil)
 
 // UserServiceImpl provides user read operations.
 type UserServiceImpl struct {
-	repo userinterfaces.UserRepository
+	repo       userinterfaces.UserRepository
+	refEncoder *identity.UserReferenceEncoder
 }
 
 // NewUserService creates a new UserServiceImpl instance.
-func NewUserService(repo userinterfaces.UserRepository) *UserServiceImpl {
-	return &UserServiceImpl{repo: repo}
+func NewUserService(repo userinterfaces.UserRepository, refEncoder *identity.UserReferenceEncoder) *UserServiceImpl {
+	return &UserServiceImpl{repo: repo, refEncoder: refEncoder}
 }
 
 // ListUsers retrieves all users and maps them into DTOs.
@@ -29,8 +31,16 @@ func (s *UserServiceImpl) ListUsers(ctx context.Context) ([]dto.User, error) {
 
 	result := make([]dto.User, 0, len(users))
 	for _, user := range users {
+		reference, refErr := s.refEncoder.Encode(user.ID)
+		if refErr != nil {
+			return nil, refErr
+		}
+
+		maskedEmail := maskEmail(user.Email)
+
 		result = append(result, dto.User{
-			Email:       maskEmail(user.Email),
+			Reference:   reference,
+			Email:       maskedEmail,
 			Name:        user.Name,
 			PictureURL:  user.PictureURL,
 			LastLoginAt: user.LastLoginAt,
